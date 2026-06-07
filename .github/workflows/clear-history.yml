@@ -1,0 +1,62 @@
+name: 🧹 Clear All Commit History
+
+on:
+  workflow_dispatch:
+    inputs:
+      confirm_clear:
+        description: 'Type YES to clear ALL commit history (CANNOT BE UNDONE)'
+        required: true
+        type: string
+
+jobs:
+  clear-history:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+
+    steps:
+      - name: Validate Confirmation
+        run: |
+          if [[ "${{ github.event.inputs.confirm_clear }}" != "YES" ]]; then
+            echo "❌ Confirmation not received. Aborting."
+            exit 1
+          fi
+          echo "✅ Confirmed. Proceeding..."
+
+      - name: Checkout Repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          token: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Set Git Config
+        run: |
+          git config --global user.email "github-actions[bot]@users.noreply.github.com"
+          git config --global user.name "GitHub Actions Bot"
+
+      - name: Remove All Git History
+        run: |
+          # Save all current files
+          mkdir -p /tmp/repo-backup
+          rsync -av --exclude='.git' . /tmp/repo-backup/
+
+          # Nuke and reinit
+          rm -rf .git
+          git init -b main
+          git remote add origin https://x-access-token:${{ secrets.GITHUB_TOKEN }}@github.com/${{ github.repository }}.git
+
+          # Restore files and commit
+          rsync -av /tmp/repo-backup/ .
+          git add -A
+          git commit -m "🧹 Initial commit: clean history"
+
+      - name: Force Push to Main
+        run: |
+          # Plain --force, NOT --force-with-lease (lease fails after git init)
+          git push origin main --force
+          echo "✅ Force push to main succeeded"
+
+      - name: Verify
+        run: |
+          echo "Total commits now: $(git rev-list --count HEAD)"
+          git log --oneline
